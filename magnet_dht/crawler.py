@@ -57,7 +57,8 @@ PER_NID_LEN = 20
 # 执行 bs 定时器间隔（秒）
 PER_SEC_BS_TIMER = 8
 # 是否使用全部进程
-MAX_PROCESSES = cpu_count() // 2 or cpu_count()
+# MAX_PROCESSES = cpu_count() // 2 or cpu_count()
+MAX_PROCESSES = 1
 
 
 class HNode:
@@ -80,7 +81,7 @@ class DHTServer:
         # UDP 地址绑定
         self.udp.bind((self.bind_ip, self.bind_port))
         # redis 客户端
-        self.rc = RedisClient()
+        # self.rc = RedisClient()
         self.logger = get_logger("logger_{}".format(bind_port))
 
     def bootstrap(self):
@@ -111,7 +112,7 @@ class DHTServer:
         """
         try:
             # msg 要经过 bencode 编码
-            self.udp.sendto(bencoder.bencode(msg), address)
+            self.udp.sendto(bencoder.encode(msg), address)
         except:
             pass
 
@@ -119,7 +120,7 @@ class DHTServer:
         """
         发送错误回复
         """
-        msg = dict(t=tid, y="e", e=[202, "Server Error"])
+        msg = {b't': tid, b'y': "e", b'e': [202, "Server Error"]}
         self.send_krpc(msg, address)
 
     def send_find_node(self, address, nid=None):
@@ -143,12 +144,12 @@ class DHTServer:
         """
         nid = get_neighbor(nid) if nid else self.nid
         tid = get_rand_id()
-        msg = dict(
-            t=tid,
-            y="q",
-            q="find_node",  # 指定请求为 find_node
-            a=dict(id=nid, target=get_rand_id()),
-        )
+        msg = {
+            b't': tid,
+            b'y': "q",
+            b'q': "find_node",  # 指定请求为 find_node
+            b'a': {b'id': nid, b'target': get_rand_id()},
+        }
         self.send_krpc(msg, address)
 
     def send_find_node_forever(self):
@@ -175,7 +176,9 @@ class DHTServer:
         # 使用 codecs 解码 info_hash
         hex_info_hash = codecs.getencoder("hex")(info_hash)[0].decode()
         magnet = MAGNET_PER.format(hex_info_hash)
-        self.rc.add_magnet(magnet)
+        print(magnet)
+        #TODO, save magnet
+        # self.rc.add_magnet(magnet)
         # self.logger.info("pid " + str(self.process_id) + " - " + magnet)
         self.logger.info("pid_{0} - {1}".format(self.process_id, magnet))
 
@@ -278,7 +281,7 @@ class DHTServer:
                 # 接受返回报文
                 data, address = self.udp.recvfrom(UDP_RECV_BUFFSIZE)
                 # 使用 bdecode 解码返回数据
-                msg = bencoder.bdecode(data)
+                msg = bencoder.decode(data)
                 # 处理返回信息
                 self.on_message(msg, address)
                 time.sleep(SLEEP_TIME)

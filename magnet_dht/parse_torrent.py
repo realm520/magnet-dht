@@ -5,7 +5,7 @@ import os
 import codecs
 from pprint import pprint
 
-from bencoder import bdecode
+from bencoder import decode
 
 TORRENT_SAVE_PATH = "torrents"
 
@@ -20,7 +20,7 @@ class ParserTorrent:
         返回解码后的 meta info 字典
         """
         with open(torrent, "rb") as f:
-            return bdecode(f.read())
+            return decode(f.read())
 
     def is_files(self):
         """
