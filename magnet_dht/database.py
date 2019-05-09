@@ -2,6 +2,24 @@
 # coding=utf-8
 
 import redis
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, Integer, String
+
+Base = declarative_base()
+
+class P2pNodes(Base):
+    __tablename__ = 't_nodes'
+    
+    id = Column(Integer, primary_key=True)
+    nid = Column(String(40))
+    ip = Column(String(16))
+    port = Column(Integer)
+
+    def __repr__(self):
+        return "<P2pNode(nid='%s', ip='%s', port='%d')>" % (
+                   self.nid, self.ip, self.port)
+
 
 # redis key
 REDIS_KEY = "magnets"
