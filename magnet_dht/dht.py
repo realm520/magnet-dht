@@ -7,11 +7,14 @@ import time
 from threading import Thread
 from collections import deque
 from multiprocessing import Process, cpu_count
-
+import pickle
 import bencoder
 
 from .utils import get_logger, get_nodes_info, get_rand_id, get_neighbor
 from .database import RedisClient
+
+
+NODES_FILE = 'nodes.pk'
 
 # 服务器 tracker
 BOOTSTRAP_NODES = [
@@ -59,6 +62,8 @@ PER_SEC_BS_TIMER = 8
 # 是否使用全部进程
 # MAX_PROCESSES = cpu_count() // 2 or cpu_count()
 MAX_PROCESSES = 1
+# 未连接上的 node 在本地保存的最长时间
+NODE_EXPIRE_TIME = 3600
 
 
 class HNode:
@@ -66,6 +71,10 @@ class HNode:
         self.nid = nid
         self.ip = ip
         self.port = port
+        self.last_see = time.time()
+    
+    def __hash__(self):
+        return self.nid
 
 
 class DHTServer:
@@ -75,7 +84,7 @@ class DHTServer:
         self.process_id = process_id
         self.nid = get_rand_id()
         # nodes 节点是一个双端队列
-        self.nodes = deque(maxlen=MAX_NODE_QSIZE)
+        self.nodes = {}
         # KRPC 协议是由 bencode 编码组成的一个简单的 RPC 结构，使用 UDP 报文发送。
         self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         # UDP 地址绑定
@@ -156,15 +165,15 @@ class DHTServer:
         """
         循环发送 find_node 请求
         """
+        #TODO, find node forever
         self.logger.info("send find node forever...")
         while True:
-            try:
-                # 弹出一个节点
-                node = self.nodes.popleft()
-                self.send_find_node((node.ip, node.port), node.nid)
+            for k,v in self.nodes.items():
+                self.send_find_node((v.ip, v.port), v.nid)
+                if time.time() - v.last_see > NODE_EXPIRE_TIME:
+                    del self.nodes[k]
                 time.sleep(SLEEP_TIME)
-            except IndexError:
-                # 一旦节点队列为空，则重新加入 DHT 网络
+            if len(self.nodes) < 1:
                 self.bootstrap()
 
     def save_magnet(self, info_hash):
@@ -176,11 +185,10 @@ class DHTServer:
         # 使用 codecs 解码 info_hash
         hex_info_hash = codecs.getencoder("hex")(info_hash)[0].decode()
         magnet = MAGNET_PER.format(hex_info_hash)
-        print(magnet)
         #TODO, save magnet
         # self.rc.add_magnet(magnet)
         # self.logger.info("pid " + str(self.process_id) + " - " + magnet)
-        self.logger.info("pid_{0} - {1}".format(self.process_id, magnet))
+        # self.logger.info("pid_{0} - {1}".format(self.process_id, magnet))
 
     def on_message(self, msg, address):
         """
@@ -190,6 +198,7 @@ class DHTServer:
         :param address: 报文地址
         """
         try:
+            self.logger.info("msg: y{0}".format(msg[b'y']))
             # `回复`
             # 对应于 KPRC 消息字典中的 y 关键字的值是 r，包含了一个附加的关键字 r。
             # 关键字 r 是字典类型，包含了返回的值。发送回复消息是在正确解析了请求消息的
@@ -228,12 +237,21 @@ class DHTServer:
         """
         nodes = get_nodes_info(msg[b"r"][b"nodes"])
         for node in nodes:
+            if len(self.nodes) >= MAX_NODE_QSIZE:
+                break
             nid, ip, port = node
             # 进行节点有效性判断
             if len(nid) != PER_NID_LEN or ip == self.bind_ip:
                 continue
-            # 将节点加入双端队列
-            self.nodes.append(HNode(nid, ip, port))
+            # 将节点加入map
+            if nid in self.nodes:
+                self.nodes[nid].last_see = time.time()
+                self.logger.info("Update node: (%s:%d)" %(self.nodes[nid].ip, self.nodes[nid].port))
+            else:
+                self.nodes[nid] = HNode(nid, ip, port)
+                self.logger.info("New node: (%s:%d)" %(self.nodes[nid].ip, self.nodes[nid].port))
+        # nodes_file = open(NODES_FILE, 'wb')
+        # pickle.dump(self.nodes, nodes_file)
 
     def on_get_peers_request(self, msg, address):
         """
