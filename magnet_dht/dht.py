@@ -5,7 +5,7 @@ import signal
 import socket
 import codecs
 import time
-from threading import Thread
+from threading import Thread, Lock
 from collections import deque
 from multiprocessing import Process, cpu_count
 import pickle
@@ -92,6 +92,7 @@ class DHTServer:
         self.udp.bind((self.bind_ip, self.bind_port))
         # redis 客户端
         # self.rc = RedisClient()
+        self.nodes_lock = Lock()
         self.logger = get_logger("logger_{}".format(bind_port))
 
     def bootstrap(self):
@@ -152,7 +153,6 @@ class DHTServer:
         :param address: 地址元组（ip, port)
         :param nid: 节点 id
         """
-        self.logger.info("find node: %s, %s" % (address[0], address[1]))
         nid = get_neighbor(nid) if nid else self.nid
         tid = get_rand_id()
         msg = {
@@ -170,12 +170,14 @@ class DHTServer:
         #TODO, find node forever
         self.logger.info("send find node forever...")
         while True:
+            self.logger.info("nodes in send_find_node_forever: %d" % len(self.nodes))
+            self.nodes_lock.acquire()
             for k,v in self.nodes.items():
-                print((v.ip, v.port))
                 self.send_find_node((v.ip, v.port), v.nid)
-                if time.time() - v.last_see > NODE_EXPIRE_TIME:
-                    del self.nodes[k]
+                # if time.time() - v.last_see > NODE_EXPIRE_TIME:
+                    # del self.nodes[k]
                 time.sleep(SLEEP_TIME)
+            self.nodes_lock.release()
             if len(self.nodes) < 1:
                 self.bootstrap()
 
@@ -201,7 +203,7 @@ class DHTServer:
         :param address: 报文地址
         """
         try:
-            self.logger.info("msg: y{0}".format(msg[b'y']))
+            self.logger.debug("msg: y{0}".format(msg[b'y']))
             # `回复`
             # 对应于 KPRC 消息字典中的 y 关键字的值是 r，包含了一个附加的关键字 r。
             # 关键字 r 是字典类型，包含了返回的值。发送回复消息是在正确解析了请求消息的
@@ -247,12 +249,14 @@ class DHTServer:
             if len(nid) != PER_NID_LEN or ip == self.bind_ip:
                 continue
             # 将节点加入map
+            self.nodes_lock.acquire()
             if nid in self.nodes:
                 self.nodes[nid].last_see = time.time()
-                self.logger.info("Update node: (%s:%d)" %(self.nodes[nid].ip, self.nodes[nid].port))
+                self.logger.debug("Update node: (%s:%d)" %(self.nodes[nid].ip, self.nodes[nid].port))
             else:
                 self.nodes[nid] = HNode(nid, ip, port)
-                self.logger.info("New node: (%s:%d)" %(self.nodes[nid].ip, self.nodes[nid].port))
+                self.logger.debug("New node: (%s:%d)" %(self.nodes[nid].ip, self.nodes[nid].port))
+            self.nodes_lock.release()
         # nodes_file = open(NODES_FILE, 'wb')
         # pickle.dump(self.nodes, nodes_file)
 
