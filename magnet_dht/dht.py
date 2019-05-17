@@ -1,6 +1,7 @@
 #! usr/bin/python
 # encoding=utf-8
 
+import signal
 import socket
 import codecs
 import time
@@ -151,6 +152,7 @@ class DHTServer:
         :param address: 地址元组（ip, port)
         :param nid: 节点 id
         """
+        self.logger.info("find node: %s, %s" % (address[0], address[1]))
         nid = get_neighbor(nid) if nid else self.nid
         tid = get_rand_id()
         msg = {
@@ -169,6 +171,7 @@ class DHTServer:
         self.logger.info("send find node forever...")
         while True:
             for k,v in self.nodes.items():
+                print((v.ip, v.port))
                 self.send_find_node((v.ip, v.port), v.nid)
                 if time.time() - v.last_see > NODE_EXPIRE_TIME:
                     del self.nodes[k]
@@ -327,7 +330,16 @@ def _start_thread(offset):
         t.join()
 
 
+stop_flag = False
+
+def set_stop_flag(signum, frame):
+    print("stop flag is set")
+    global stop_flag
+    stop_flag = True
+
 def start_server():
+    global stop_flag
+    signal.signal(signal.SIGINT, set_stop_flag)
     """
     多线程启动服务
     """
@@ -338,5 +350,12 @@ def start_server():
     for p in processes:
         p.start()
 
-    for p in processes:
-        p.join()
+    while True:
+        if stop_flag:
+            for p in processes:
+                print("stop process: %d" % p.pid)
+                p.terminate()
+                p.join()
+            break
+        time.sleep(1)
+
